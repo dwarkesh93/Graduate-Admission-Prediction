@@ -1,0 +1,500 @@
+---
+title: "Admission"
+output: html_document
+---
+
+```{r}
+#install.packages('glmnet')
+library(glmnet)
+#install.packages("MLmetrics")
+library(rpart)
+library(rpart.plot)
+library(MLmetrics)
+
+```
+
+
+
+Step i: EDA
+
+```{r}
+library(dplyr)
+library(GGally)
+adm_data=read.csv("Admission_Predict.csv")
+adm_data=adm_data[,-1]
+write.csv(summary(adm_data),file = "Summary.csv")
+head(adm_data)
+
+adm_data%>%ggpairs()
+
+
+```
+
+
+
+```{r}
+adm_data$Research=as.factor(adm_data$Research)
+adm_data=rename(adm_data,AdmitProb=Chance.of.Admit)
+```
+
+
+```{r}
+```
+
+
+```{r}
+summary(adm_data)
+
+```
+
+
+```{r}
+adm_data[,1]%>%boxplot()
+adm_data[,2]%>%boxplot()
+adm_data[,seq(3,7)]%>%boxplot()
+adm_data[,8]%>%boxplot()
+
+
+```
+```{r}
+set.seed(13944529)
+num=sample(nrow(adm_data),0.8*nrow(adm_data))
+adm_train=adm_data[num,]
+adm_test=adm_data[-num,]
+
+ggpairs(adm_data)
+  
+```
+
+
+
+
+```{r}
+
+adm_full=lm(data=adm_train,formula=AdmitProb~.)
+summary(adm_full)
+mean(summary(adm_full)$residuals^2)
+```
+We observe that only the coefficients of university rating and SOP appear to be statistically insignificant. Rest all of the other factors are considered significant.
+```{r}
+AIC(adm_full)
+BIC(adm_full)
+```
+Step ii: Best Model using AIC
+
+```{r}
+
+adm_aic=step(adm_full,direction="both",k=2)
+summary(adm_aic)
+AIC(adm_aic)
+BIC(adm_aic)
+mean(summary(adm_aic)$residuals^2)
+
+```
+AdmitProb ~ GRE.Score + TOEFL.Score + LOR + CGPA + Research 
+
+is the model considered to be the best fit by aic(score=-1507.72) mixed direction model selection approach. We attempt to repeat model selection using BIC.
+
+
+Step ii: Best Model using BIC
+```{r}
+adm_bic=step(adm_full,direction="both",k=log(nrow(adm_train)))
+summary(adm_bic)
+AIC(adm_bic)
+BIC(adm_bic)
+
+mean(summary(adm_bic)$residuals^2)
+
+```
+
+AdmitProb ~ TOEFL.Score + LOR + CGPA + Research
+is the model considered to be the best fit by aic(score=-686.97) mixed direction model selection approach. We continue the analyis with the best fit  model based on bic.
+
+
+Step ii: LASSO-based model selection 
+```{r}
+adm_lasso=glmnet(x=as.matrix(adm_train[,-c(which(colnames(adm_train)=="AdmitProb"))]),y=adm_train$AdmitProb,alpha=1,lambda = 0.01)
+coef(adm_lasso,s=0.01)
+#coef(adm_lasso)
+
+```
+At a lambda=0.01, the model shrinks to drop out SOP predictor. The final model is-
+
+Admit.Prob~GRE.Score+University.Rating+TOEFL.Score + LOR + CGPA + Research
+
+```{r}
+
+
+```
+
+
+```{r}
+```
+
+```{r}
+#in-sample prediction
+
+pred_bic=predict(adm_bic)
+
+bic_mse=mean(summary(adm_bic)$residuals^2)
+
+bic_mse
+```
+
+
+```{r}
+pred_aic=predict(adm_aic)
+
+aic_mse=mean(summary(adm_aic)$residuals^2)
+
+aic_mse
+
+```
+
+```{r}
+pred_lasso=predict.glmnet(adm_lasso,newx=data.matrix(adm_train[,-c(which(colnames(adm_train)=="AdmitProb"))]),s=0.01)
+
+lasso_mse=mean((pred_lasso-adm_train$AdmitProb)^2)
+
+lasso_mse
+```
+
+Between LASSO, AIC and BIC variable selection, the BIC model has the lowest in-sample mse.
+```{r}
+
+```
+
+
+```{r}
+
+oos_pred_aic=predict(adm_aic,newdata=adm_test)
+
+oos_aic_mspe=mean((oos_pred_aic-adm_test$AdmitProb)^2)
+oos_aic_mspe
+summary(adm_aic)
+summary(adm_bic)
+```
+
+
+
+```{r}
+oos_pred_bic=predict(adm_bic,newdata=adm_test)
+
+oos_bic_mspe=mean((oos_pred_bic-adm_test$AdmitProb)^2)
+oos_bic_mspe
+
+```
+```{r}
+oos_pred_lasso=predict.glmnet(adm_lasso,newx=data.matrix(adm_test[,-c(which(colnames(adm_train)=="AdmitProb"))]),s=0.01)
+
+oos_lasso_mspe=mean((oos_pred_lasso-adm_test$AdmitProb)^2)
+oos_lasso_mspe
+
+```
+For out-of-sample predictions as well, the AIC model outperforms the BIC and LASSO regression.
+
+
+
+```{r}
+
+##OOS prediction using aic
+oos_pred_aic=predict(adm_aic,newdata=adm_test)
+
+oos_aic_mspe=mean((oos_pred_aic-adm_test$AdmitProb)^2)
+oos_aic_mspe
+
+
+```
+For both in-sample and out-of-sample, the AIC model performs marginally better.
+Step iv Cross Validation
+```{r}
+
+```
+
+Step iv: Cross Validation 5-Fold
+```{r}
+library(boot)
+
+cv_adm_aic=glm(data=adm_data,formula=AdmitProb ~ GRE.Score + TOEFL.Score + LOR + CGPA + Research )
+
+cv_aic_mspe=cv.glm(data = adm_data, glmfit = cv_adm_aic, K = 5)$delta[2]
+cv_aic_mspe
+
+MSE(predict(cv_adm_aic),adm_data$AdmitProb)
+
+```
+
+
+```{r}
+cv_adm_bic=glm(data=adm_data,formula=AdmitProb ~ TOEFL.Score + LOR + CGPA + Research )
+cv_bic_mspe=cv.glm(data = adm_data, glmfit = cv_adm_bic, K = 5)$delta[2]
+cv_bic_mspe
+
+MSE(predict(cv_adm_bic),adm_data$AdmitProb)
+```
+
+```{r}
+
+cv_adm_lasso=glmnet(x=data.matrix(adm_data[,-c(which(colnames(adm_data)=="AdmitProb"))]),y=adm_data$AdmitProb,alpha=1)
+cv_adm_lasso_fit= cv.glmnet(x = data.matrix(adm_data[, -c(which(colnames(adm_data)=='AdmitProb'))]), y = adm_data$AdmitProb, alpha = 1, nfolds = 5)
+
+cv_adm_lasso_fit$cvm[cv_adm_lasso_fit$lambda == cv_adm_lasso_fit$lambda.min]
+lasso.cv.err=cv_adm_lasso_fit$cvm[cv_adm_lasso_fit$lambda == cv_adm_lasso_fit$lambda.min]
+
+
+cv_pred_lasso=predict(cv_adm_lasso,newx=data.matrix(adm_data[,-c(which(colnames(adm_data)=="AdmitProb"))]),s=cv_adm_lasso_fit$lambda.min)
+
+#cv_lasso_mse=MSE(cv_pred_lasso,adm_data$AdmitProb)
+#cv_lasso_mse
+
+#coef(cv_adm_lasso,s=cv_adm_lasso_fit$lambda.min)
+#Admit.Prob~GRE.Score+University.Rating+TOEFL.Score + LOR + CGPA + Research
+lasso.cv.err
+
+```
+With full data cross validation, LASSO CV generates the model with least CV error.
+
+The model is represented as-
+
+Admit.Prob~GRE.Score+University.Rating+TOEFL.Score + LOR + CGPA + Research
+
+At a lambda=0.0143, the model shrinks to drop out SOP predictor.
+
+This can be attributed to a different lambda value chosen for LASSO and more importantly the full dataset's inclusion in fitting the model.
+
+Step v: CART regression
+
+```{r}
+adm_rpart=rpart(data=adm_train,formula = AdmitProb ~ .)
+rpart.plot(adm_rpart)
+prp(adm_rpart)
+```
+
+
+```{r}
+adm_rpart_mse=MSE(predict(adm_rpart),adm_train$AdmitProb)
+adm_rpart_mse
+
+```
+```{r}
+adm_rpart_mspe=MSE(predict(adm_rpart,newdata=adm_test),adm_test$AdmitProb)
+adm_rpart_mspe
+
+```
+step vi:
+The out-of-sample prediction error for CART model is almost twice of the linear regression model(using aic, bic or lasso)
+
+step vii:
+
+---
+title: "Repetition steps"
+---
+
+```{r}
+
+```
+
+
+
+Step i: EDA
+
+
+```{r}
+#replication seed change
+set.seed(100)
+rep_num=sample(nrow(adm_data),0.8*nrow(adm_data))
+adm_train=adm_data[rep_num,]
+adm_test=adm_data[-rep_num,]
+
+```
+
+
+
+
+```{r}
+
+rep_adm_full=lm(data=adm_train,formula=AdmitProb~.)
+summary(rep_adm_full)
+```
+We observe that only the coefficients of university rating and SOP appear to be statistically insignificant. Rest all of the other factors are considered significant.
+```{r}
+AIC(rep_adm_full)
+BIC(rep_adm_full)
+```
+Step ii: Best Model using AIC
+
+```{r}
+
+rep_adm_aic=step(rep_adm_full,direction="both",k=2)
+summary(rep_adm_aic)
+AIC(rep_adm_aic)
+```
+AdmitProb ~ GRE.Score + TOEFL.Score + LOR + CGPA + Research 
+
+is the model considered to be the best fit by aic(score=-1507.72) mixed direction model selection approach. We attempt to repeat model selection using BIC.The values are same as the original model
+
+
+Step ii: Best Model using BIC
+```{r}
+rep_adm_bic=step(rep_adm_full,direction="both",k=log(nrow(adm_train)))
+summary(rep_adm_bic)
+BIC(rep_adm_bic)
+
+```
+
+AdmitProb ~GRE.Score+ TOEFL.Score + LOR + CGPA
+is the model considered to be the best fit by bic(score=-842.7) mixed direction model selection approach. We continue the analsyis with the best fit  model based on bic. The model differs slightly from the original approach by bic
+
+
+Step ii: LASSO-based model selection 
+```{r}
+rep_adm_lasso=glmnet(x=as.matrix(adm_train[,-c(which(colnames(adm_train)=="AdmitProb"))]),y=adm_train$AdmitProb,alpha=1)
+coef(rep_adm_lasso,s=0.01)
+#coef(adm_lasso)
+
+
+```
+At a lambda=0.01, the model shrinks to drop out SOP predictor. The final model is-
+
+Admit.Prob~GRE.Score+University.Rating+TOEFL.Score + LOR + CGPA + Research
+
+The replication result is identical to the original model
+
+
+```{r}
+#in-sample prediction
+
+rep_pred_bic=predict(rep_adm_bic)
+
+rep_bic_mse=mean(summary(rep_adm_bic)$residuals^2)
+rep_bic_mse
+```
+
+
+```{r}
+rep_pred_aic=predict(rep_adm_aic)
+
+rep_aic_mse=mean(summary(rep_adm_aic)$residuals^2)
+rep_aic_mse
+
+AIC(rep_adm_aic)
+AIC(rep_adm_bic)
+
+BIC(rep_adm_aic)
+BIC(rep_adm_bic)
+```
+
+```{r}
+rep_pred_lasso=predict.glmnet(rep_adm_lasso,newx=data.matrix(adm_train[,-c(which(colnames(adm_train)=="AdmitProb"))]),s=0.01)
+
+rep_lasso_mse=mean((rep_pred_lasso-adm_train$AdmitProb)^2)
+rep_lasso_mse
+```
+
+Between LASSO, AIC and BIC variable selection, the AIC model has the lowest in-sample mse. This is consistent with the original analysis.
+```{r}
+
+```
+
+
+```{r}
+
+rep_oos_pred_aic=predict(rep_adm_aic,newdata=adm_test)
+
+rep_oos_aic_mspe=mean((rep_oos_pred_aic-adm_test$AdmitProb)^2)
+rep_oos_aic_mspe
+
+```
+
+
+
+```{r}
+rep_oos_pred_bic=predict(rep_adm_bic,newdata=adm_test)
+
+rep_oos_bic_mspe=mean((rep_oos_pred_bic-adm_test$AdmitProb)^2)
+rep_oos_bic_mspe
+
+```
+```{r}
+rep_oos_pred_lasso=predict.glmnet(rep_adm_lasso,newx=data.matrix(adm_test[,-c(which(colnames(adm_train)=="AdmitProb"))]),s=0.01)
+
+rep_oos_lasso_mspe=mean((rep_oos_pred_lasso-adm_test$AdmitProb)^2)
+rep_oos_lasso_mspe
+
+```
+For out-of-sample predictions as well, the AIC model outperforms the BIC and LASSO regression.
+This is consistent with the original analysis.
+
+
+
+For both in-sample and out-of-sample, the AIC model performs marginally better.
+Step iv Cross Validation
+```{r}
+
+```
+
+Step iv: Cross Validation 5-Fold
+```{r}
+library(boot)
+
+rep_cv_adm_aic=glm(data=adm_data,formula=AdmitProb ~ GRE.Score + TOEFL.Score + LOR + CGPA + Research )
+
+rep_cv_aic_mspe=cv.glm(data = adm_data, glmfit = rep_cv_adm_aic, K = 10)$delta[2]
+rep_cv_aic_mspe
+
+```
+
+
+```{r}
+rep_cv_adm_bic=glm(data=adm_data,formula=AdmitProb ~ TOEFL.Score + LOR + CGPA + Research )
+rep_cv_bic_mspe=cv.glm(data = adm_data, glmfit = rep_cv_adm_bic, K = 10)$delta[2]
+rep_cv_bic_mspe
+```
+
+```{r}
+
+rep_cv_adm_lasso=glmnet(x=data.matrix(adm_data[,-c(which(colnames(adm_data)=="AdmitProb"))]),y=adm_data$AdmitProb,alpha=1)
+rep_cv_adm_lasso_fit= cv.glmnet(x = data.matrix(adm_data[, -c(which(colnames(adm_data)=='AdmitProb'))]), y = adm_data$AdmitProb, alpha = 1, nfolds = 10)
+
+rep_cv_pred_lasso=predict(rep_cv_adm_lasso,newx=data.matrix(adm_data[,-c(which(colnames(adm_data)=="AdmitProb"))]),s=rep_cv_adm_lasso_fit$lambda.min)
+
+rep_cv_lasso_mse=MSE(rep_cv_pred_lasso,adm_data$AdmitProb)
+rep_cv_lasso_mse
+
+lasso.cv.err=rep_cv_adm_lasso_fit$cvm[rep_cv_adm_lasso_fit$lambda == rep_cv_adm_lasso_fit$lambda.min]
+
+#coef(rep_cv_adm_lasso,s=rep_cv_adm_lasso_fit$lambda.min)
+#Admit.Prob~GRE.Score+University.Rating+TOEFL.Score + LOR + CGPA + Research
+
+```
+With full data cross validation, LASSO CV generates the model with least MSE.
+
+The model is represented as-
+
+Admit.Prob~GRE.Score+University.Rating+TOEFL.Score + LOR + CGPA + Research
+
+At a lambda=0.0013, the model shrinks to drop out SOP predictor.
+
+This can be attributed to a different lambda value chosen for LASSO and more importantly the full dataset's inclusion in fitting the model.
+
+Step v: CART regression
+
+```{r}
+rep_adm_rpart=rpart(data=adm_train,formula = AdmitProb ~ .)
+rpart.plot(rep_adm_rpart)
+prp(rep_adm_rpart)
+```
+
+
+```{r}
+rep_adm_rpart_mse=MSE(predict(rep_adm_rpart),adm_train$AdmitProb)
+rep_adm_rpart_mse
+
+```
+```{r}
+rep_adm_rpart_mspe=MSE(predict(rep_adm_rpart,newdata=adm_test),adm_test$AdmitProb)
+rep_adm_rpart_mspe
+
+```
+step vi:
+The out-of-sample prediction error for CART model are identical with linear regression model(using aic, bic or lasso) in the replication analysis. This is a stark difference from the original analysis where the CART mspe was 80% more than linear regression approach. This can be attributed to the high mspe of the replicated linear regression models.
